@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: write
+  actions: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -51,6 +55,9 @@ jobs:
     - name: Build Release APK
       run: gradle assembleRelease --stacktrace
 
+    - name: List APK outputs
+      run: find app/build/outputs/apk -name "*.apk" || echo "No APK files found"
+
     - name: Upload Debug APK
       uses: actions/upload-artifact@v4
       with:
@@ -67,6 +74,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: write
 
     steps:
     - uses: actions/download-artifact@v4
@@ -78,6 +87,9 @@ jobs:
       with:
         name: debug-apk
         path: debug/
+
+    - name: List downloaded files
+      run: ls -la release/ debug/
 
     - name: Create Release
       uses: softprops/action-gh-release@v2
