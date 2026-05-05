@@ -1,13 +1,8 @@
 package com.dice3d.app.data
 
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
-
 class HistoryRepository(private val dao: HistoryDao) {
 
-    fun getAllResults(): Flow<List<RollResult>> = kotlinx.coroutines.flow.flow {
-        emit(dao.getAll())
-    }
+    suspend fun getAllResults(): List<RollResult> = dao.getAll()
 
     suspend fun getResultsByType(diceType: DiceType): List<RollResult> =
         dao.getByType(diceType.name)
