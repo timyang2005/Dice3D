@@ -53,19 +53,38 @@
 ## 📱 系统要求
 
 - **最低 SDK**: Android 7.0 (API 24)
-- **目标 SDK**: Android 15 (API 35)
-- **编译 SDK**: Android 15 (API 35)
+- **目标 SDK**: Android 16 (API 36)
+- **编译 SDK**: Android 16 (API 36)
 
 ## 🏗️ 项目结构
 
 ```
 app/src/main/java/com/dice3d/app/
 ├── data/                    # 数据层
+│   ├── DiceType.kt         # 骰子类型枚举
+│   ├── RollResult.kt       # 投掷结果实体
+│   ├── HistoryDao.kt       # Room DAO
+│   ├── HistoryDatabase.kt  # Room 数据库
+│   ├── HistoryRepository.kt# 历史记录仓库
+│   └── SettingsRepository.kt# 设置仓库 (DataStore)
 ├── engine/                  # 3D 引擎层
+│   ├── DiceMeshGenerator.kt# 骰子网格生成器
+│   ├── PhysicsWorld.kt     # 物理引擎 (刚体/碰撞/弹跳)
+│   ├── GLRenderer.kt       # OpenGL ES 渲染器
+│   └── CameraController.kt # 相机控制系统
 ├── sensor/                  # 传感器层
+│   └── GyroThrowDetector.kt# 陀螺仪投掷检测
 ├── audio/                   # 音频层
+│   ├── DiceAudioManager.kt # 音效管理
+│   └── HapticManager.kt    # 触觉反馈管理
 ├── viewmodel/               # ViewModel 层
+│   ├── DiceViewModel.kt    # 主界面 ViewModel
+│   ├── SettingsViewModel.kt# 设置 ViewModel
+│   └── HistoryViewModel.kt # 历史 ViewModel
 ├── ui/                      # UI 层
+│   ├── theme/              # Material 3 主题
+│   ├── screens/            # 页面 (Dice/Settings/History)
+│   └── components/         # 组件 (GLSurfaceView)
 ├── DiceApplication.kt      # Application
 └── MainActivity.kt         # 主 Activity
 ```
@@ -74,7 +93,7 @@ app/src/main/java/com/dice3d/app/
 
 1. 克隆仓库：
    ```bash
-   git clone https://github.com/timyang2005/Dice3D.git
+   git clone https://github.com/YOUR_USERNAME/Dice3D.git
    cd Dice3D
    ```
 

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">3D 骰子</string>
+    <string name="roll_dice">🔀 掷骰子</string>
+    <string name="reset_view">回正视角</string>
+    <string name="settings">设置</string>
+    <string name="history">历史记录</string>
+    <string name="dice_count">骰子数量</string>
+    <string name="dice_type">骰子面数</string>
+    <string name="dice_color">骰子颜色</string>
+    <string name="show_sum">显示总和</string>
+    <string name="sound_enabled">音效</string>
+    <string name="haptic_enabled">触觉反馈</string>
+    <string name="sim_speed">模拟速度</string>
+    <string name="dark_mode">深色模式</string>
+    <string name="gyro_enabled">陀螺仪投掷</string>
+    <string name="clear_history">清空历史</string>
+    <string name="no_history">暂无投掷记录</string>
+    <string name="total">总和</string>
+    <string name="reset">重置</string>
+    <string name="follow_system">跟随系统</string>
+    <string name="light_mode">浅色模式</string>
+    <string name="dark_mode_on">深色模式</string>
+    <string name="statistics">统计分布</string>
+</resources>
