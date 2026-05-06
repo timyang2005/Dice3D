@@ -1,11 +1,15 @@
 package com.dice3d.app.physics
 
 import com.jme3.bullet.PhysicsSpace
-import com.jme3.bullet.collision.shapes.ConvexHullCollisionShape
+import com.jme3.bullet.collision.shapes.BoxCollisionShape
+import com.jme3.bullet.collision.shapes.HullCollisionShape
+import com.jme3.bullet.collision.shapes.PlaneCollisionShape
 import com.jme3.bullet.objects.PhysicsBody
 import com.jme3.bullet.objects.PhysicsRigidBody
-import com.jme3.math.Vector3f
+import com.jme3.math.Matrix3f
+import com.jme3.math.Plane
 import com.jme3.math.Quaternion
+import com.jme3.math.Vector3f
 import com.dice3d.app.engine.DiceMesh
 
 class LibbulletjmeAdapter : PhysicsAdapter {
@@ -16,16 +20,14 @@ class LibbulletjmeAdapter : PhysicsAdapter {
 
     override fun initialize() {
         physicsSpace = PhysicsSpace(PhysicsSpace.BroadphaseType.DBVT)
-        physicsSpace.gravity = Vector3f(0f, -9.81f, 0f)
+        physicsSpace.setGravity(Vector3f(0f, -9.81f, 0f))
 
         addGround()
         addWalls()
     }
 
     private fun addGround() {
-        val groundShape = com.jme3.bullet.collision.shapes.PlaneCollisionShape(
-            com.jme3.math.Plane(Vector3f.UNIT_Y, 0f)
-        )
+        val groundShape = PlaneCollisionShape(Plane(Vector3f.UNIT_Y, 0f))
         val ground = PhysicsRigidBody(groundShape, PhysicsBody.massForStatic)
         ground.friction = 0.9f
         ground.restitution = 0.1f
@@ -34,25 +36,25 @@ class LibbulletjmeAdapter : PhysicsAdapter {
 
     private fun addWalls() {
         val wallDistance = 4f
-        val wallThickness = 0.1f
-        val wallHeight = 10f
+        val wallHalfThickness = 0.05f
+        val wallHalfHeight = 5f
 
         val positions = arrayOf(
-            Vector3f(-wallDistance, wallHeight / 2, 0f),
-            Vector3f(wallDistance, wallHeight / 2, 0f),
-            Vector3f(0f, wallHeight / 2, -wallDistance),
-            Vector3f(0f, wallHeight / 2, wallDistance)
+            Vector3f(-wallDistance, wallHalfHeight, 0f),
+            Vector3f(wallDistance, wallHalfHeight, 0f),
+            Vector3f(0f, wallHalfHeight, -wallDistance),
+            Vector3f(0f, wallHalfHeight, wallDistance)
         )
 
-        val sizes = arrayOf(
-            Vector3f(wallThickness, wallHeight, wallDistance * 2),
-            Vector3f(wallThickness, wallHeight, wallDistance * 2),
-            Vector3f(wallDistance * 2, wallHeight, wallThickness),
-            Vector3f(wallDistance * 2, wallHeight, wallThickness)
+        val halfExtents = arrayOf(
+            Vector3f(wallHalfThickness, wallHalfHeight, wallDistance),
+            Vector3f(wallHalfThickness, wallHalfHeight, wallDistance),
+            Vector3f(wallDistance, wallHalfHeight, wallHalfThickness),
+            Vector3f(wallDistance, wallHalfHeight, wallHalfThickness)
         )
 
         for (i in positions.indices) {
-            val wallShape = com.jme3.bullet.collision.shapes.BoxCollisionShape(sizes[i])
+            val wallShape = BoxCollisionShape(halfExtents[i])
             val wall = PhysicsRigidBody(wallShape, PhysicsBody.massForStatic)
             wall.setPhysicsLocation(positions[i])
             wall.friction = 0.5f
@@ -62,19 +64,13 @@ class LibbulletjmeAdapter : PhysicsAdapter {
     }
 
     override fun createDiceBody(id: Int, mesh: DiceMesh, boundingRadius: Float): DicePhysicsBody {
-        val vertices = mesh.vertices
-        val points = mutableListOf<Vector3f>()
-        for (i in vertices.indices step 3) {
-            points.add(Vector3f(vertices[i], vertices[i + 1], vertices[i + 2]))
-        }
-
-        val collisionShape = ConvexHullCollisionShape(points)
+        val collisionShape = HullCollisionShape(mesh.vertices)
         val mass = 0.1f
         val rigidBody = PhysicsRigidBody(collisionShape, mass)
         rigidBody.friction = 0.8f
         rigidBody.restitution = 0.2f
         rigidBody.setSleepingThresholds(0.01f, 0.02f)
-        rigidBody.angularDamping = 0.1f
+        rigidBody.setAngularDamping(0.1f)
 
         physicsSpace.addCollisionObject(rigidBody)
 
@@ -84,14 +80,14 @@ class LibbulletjmeAdapter : PhysicsAdapter {
     }
 
     override fun step(dt: Float) {
-        physicsSpace.update(dt, 0)
+        physicsSpace.update(dt)
         checkCollisions()
     }
 
     private fun checkCollisions() {
         val threshold = 2f
         for (body in bodies) {
-            val vel = body.rigidBody.linearVelocity
+            val vel = body.rigidBody.getLinearVelocity(null)
             val speed = vel.length()
             if (speed > threshold) {
                 collisionListener?.invoke(speed.coerceAtMost(10f))
@@ -121,7 +117,7 @@ private class LibbulletjmeBody(
 
     override var position: FloatArray
         get() {
-            val pos = rigidBody.physicsLocation
+            val pos = rigidBody.getPhysicsLocation(null)
             return floatArrayOf(pos.x, pos.y, pos.z)
         }
         set(value) {
@@ -130,7 +126,7 @@ private class LibbulletjmeBody(
 
     override var orientation: FloatArray
         get() {
-            val q = rigidBody.physicsRotation
+            val q = rigidBody.getPhysicsRotation(null as Quaternion?)
             return floatArrayOf(q.x, q.y, q.z, q.w)
         }
         set(value) {
@@ -140,28 +136,28 @@ private class LibbulletjmeBody(
 
     override var linearVelocity: FloatArray
         get() {
-            val vel = rigidBody.linearVelocity
+            val vel = rigidBody.getLinearVelocity(null)
             return floatArrayOf(vel.x, vel.y, vel.z)
         }
         set(value) {
-            rigidBody.linearVelocity = Vector3f(value[0], value[1], value[2])
+            rigidBody.setLinearVelocity(Vector3f(value[0], value[1], value[2]))
         }
 
     override var angularVelocity: FloatArray
         get() {
-            val angVel = rigidBody.angularVelocity
+            val angVel = rigidBody.getAngularVelocity(null)
             return floatArrayOf(angVel.x, angVel.y, angVel.z)
         }
         set(value) {
-            rigidBody.angularVelocity = Vector3f(value[0], value[1], value[2])
+            rigidBody.setAngularVelocity(Vector3f(value[0], value[1], value[2]))
         }
 
     override var isSleeping: Boolean
         get() = !rigidBody.isActive
-        set(value) { rigidBody.isActive = !value }
+        set(value) { if (!value) rigidBody.activate() }
 
     override fun getUpFace(): Int {
-        val rot = rigidBody.physicsRotation
+        val rot = rigidBody.getPhysicsRotation(null as Quaternion?)
         val upVector = Vector3f(0f, 1f, 0f)
         var bestDot = -2f
         var bestFace = 1
@@ -180,14 +176,14 @@ private class LibbulletjmeBody(
 
     override fun getTransformMatrix(): FloatArray {
         val result = FloatArray(16)
-        val pos = rigidBody.physicsLocation
-        val rot = rigidBody.physicsRotation
+        val pos = rigidBody.getPhysicsLocation(null)
+        val rot = rigidBody.getPhysicsRotation(null as Quaternion?)
+        val mat = rot.toRotationMatrix()
 
-        rot.toRotationMatrix(result)
-        result[12] = pos.x
-        result[13] = pos.y
-        result[14] = pos.z
-        result[15] = 1f
+        result[0] = mat.m00; result[1] = mat.m10; result[2] = mat.m20; result[3] = 0f
+        result[4] = mat.m01; result[5] = mat.m11; result[6] = mat.m21; result[7] = 0f
+        result[8] = mat.m02; result[9] = mat.m12; result[10] = mat.m22; result[11] = 0f
+        result[12] = pos.x; result[13] = pos.y; result[14] = pos.z; result[15] = 1f
 
         return result
     }
