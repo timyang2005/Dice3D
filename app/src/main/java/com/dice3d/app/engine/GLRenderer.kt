@@ -12,6 +12,7 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
+import com.dice3d.app.physics.DicePhysicsBody
 
 class GLRenderer(
     private val cameraController: CameraController
@@ -232,9 +233,9 @@ class GLRenderer(
         return shader
     }
 
-    private val physicsBodies = mutableMapOf<Int, DiceBody>()
+    private val physicsBodies = mutableMapOf<Int, DicePhysicsBody>()
 
-    fun updatePhysicsBodies(bodies: List<DiceBody>) {
+    fun updatePhysicsBodies(bodies: List<DicePhysicsBody>) {
         physicsBodies.clear()
         for (body in bodies) {
             physicsBodies[body.id] = body
