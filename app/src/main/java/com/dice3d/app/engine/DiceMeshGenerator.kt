@@ -16,7 +16,8 @@ data class DiceMesh(
 
 data class FaceInfo(
     val faceNormal: FloatArray,
-    val faceNumber: Int
+    val faceNumber: Int,
+    val faceCenter: FloatArray
 )
 
 object DiceMeshGenerator {
@@ -31,7 +32,7 @@ object DiceMeshGenerator {
             DiceType.D10 -> generateTrapezohedron10()
             DiceType.D12 -> generateDodecahedron()
             DiceType.D20 -> generateIcosahedron()
-            DiceType.D100 -> generateTrapezohedron10()
+            DiceType.D100 -> generateTrapezohedron100()
         }
     }
 
@@ -43,7 +44,7 @@ object DiceMeshGenerator {
             -1f, 1f, -1f,
             -1f, -1f, 1f
         )
-        val scale = 0.7f
+        val scale = 0.5f
         for (i in verts.indices) verts[i] *= scale
 
         val faces = listOf(
@@ -57,7 +58,7 @@ object DiceMeshGenerator {
     }
 
     private fun generateCube(): DiceMesh {
-        val s = 0.65f
+        val s = 0.5f
         val verts = floatArrayOf(
             -s, -s,  s,   s, -s,  s,   s,  s,  s,  -s,  s,  s,
             -s, -s, -s,  -s,  s, -s,   s,  s, -s,   s, -s, -s,
@@ -79,7 +80,7 @@ object DiceMeshGenerator {
     }
 
     private fun generateOctahedron(): DiceMesh {
-        val s = 0.9f
+        val s = 0.7f
         val verts = floatArrayOf(
              0f,  s,  0f,
              s,  0f,  0f,
@@ -104,8 +105,8 @@ object DiceMeshGenerator {
 
     private fun generateTrapezohedron10(): DiceMesh {
         val n = 5
-        val h = 1.0f
-        val r = 0.7f
+        val h = 0.8f
+        val r = 0.55f
         val twist = PI.toFloat() / n
 
         val vertexList = mutableListOf<Float>()
@@ -134,13 +135,49 @@ object DiceMeshGenerator {
             faces.add(intArrayOf(botIdx, mid1Start + next, mid2Start + i))
         }
 
-        val faceNumbers = (1..10).toList()
+        val faceNumbers = listOf(1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10)
+        return buildMesh(vertexList.toFloatArray(), faces, faceNumbers)
+    }
+
+    private fun generateTrapezohedron100(): DiceMesh {
+        val n = 5
+        val h = 0.8f
+        val r = 0.55f
+        val twist = PI.toFloat() / n
+
+        val vertexList = mutableListOf<Float>()
+        vertexList.add(0f); vertexList.add(h); vertexList.add(0f)
+        for (i in 0 until n) {
+            val angle = 2f * PI.toFloat() * i / n
+            vertexList.add(r * cos(angle)); vertexList.add(0f); vertexList.add(r * sin(angle))
+        }
+        for (i in 0 until n) {
+            val angle = 2f * PI.toFloat() * i / n + twist
+            vertexList.add(r * 0.6f * cos(angle)); vertexList.add(0f); vertexList.add(r * 0.6f * sin(angle))
+        }
+        vertexList.add(0f); vertexList.add(-h); vertexList.add(0f)
+
+        val topIdx = 0
+        val mid1Start = 1
+        val mid2Start = 1 + n
+        val botIdx = 1 + 2 * n
+
+        val faces = mutableListOf<IntArray>()
+        for (i in 0 until n) {
+            val next = (i + 1) % n
+            faces.add(intArrayOf(topIdx, mid1Start + i, mid2Start + i))
+            faces.add(intArrayOf(topIdx, mid2Start + i, mid1Start + next))
+            faces.add(intArrayOf(botIdx, mid2Start + i, mid1Start + i))
+            faces.add(intArrayOf(botIdx, mid1Start + next, mid2Start + i))
+        }
+
+        val faceNumbers = listOf(0, 0, 10, 10, 20, 20, 30, 30, 40, 40, 50, 50, 60, 60, 70, 70, 80, 80, 90, 90)
         return buildMesh(vertexList.toFloatArray(), faces, faceNumbers)
     }
 
     private fun generateDodecahedron(): DiceMesh {
         val phi = (1f + sqrt(5f)) / 2f
-        val scale = 0.45f
+        val scale = 0.35f
 
         val cubeVerts = mutableListOf<Float>()
         for (x in floatArrayOf(-1f, 1f)) {
@@ -183,7 +220,7 @@ object DiceMeshGenerator {
 
     private fun generateIcosahedron(): DiceMesh {
         val phi = (1f + sqrt(5f)) / 2f
-        val scale = 0.55f
+        val scale = 0.42f
 
         val verts = floatArrayOf(
             -1f,  phi, 0f,   1f,  phi, 0f,  -1f, -phi, 0f,   1f, -phi, 0f,
@@ -237,7 +274,11 @@ object DiceMeshGenerator {
                 floatArrayOf(0f, 1f, 0f)
             }
 
-            faceInfosList.add(FaceInfo(unitNormal.copyOf(), faceNumbers[fi]))
+            faceInfosList.add(FaceInfo(unitNormal.copyOf(), faceNumbers[fi], floatArrayOf(
+                center[0] + unitNormal[0] * 0.02f,
+                center[1] + unitNormal[1] * 0.02f,
+                center[2] + unitNormal[2] * 0.02f
+            )))
 
             for (idx in face) {
                 val x = rawVerts[idx * 3]

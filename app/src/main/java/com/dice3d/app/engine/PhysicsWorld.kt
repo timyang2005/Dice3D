@@ -61,7 +61,7 @@ class Quaternion(
 class DiceBody(
     val id: Int,
     val mesh: DiceMesh,
-    val boundingRadius: Float = 0.7f
+    val boundingRadius: Float = 0.5f
 ) {
     var posX: Float = 0f
     var posY: Float = 2f
@@ -85,9 +85,9 @@ class DiceBody(
     val linearDamping: Float = 0.98f
     val angularDamping: Float = 0.96f
 
-    private val sleepLinearThreshold = 0.05f
-    private val sleepAngularThreshold = 0.1f
-    private val sleepTimeRequired = 0.5f
+    private val sleepLinearThreshold = 0.03f
+    private val sleepAngularThreshold = 0.05f
+    private val sleepTimeRequired = 0.8f
 
     fun applyImpulse(ix: Float, iy: Float, iz: Float) {
         velX += ix / mass
@@ -183,52 +183,87 @@ class PhysicsWorld {
     var onCollision: ((Float) -> Unit)? = null
 
     fun addDice(body: DiceBody) {
-        diceBodies.add(body)
+        synchronized(diceBodies) {
+            diceBodies.add(body)
+        }
     }
 
     fun removeDice(id: Int) {
-        diceBodies.removeAll { it.id == id }
+        synchronized(diceBodies) {
+            diceBodies.removeAll { it.id == id }
+        }
     }
 
     fun clearDice() {
-        diceBodies.clear()
+        synchronized(diceBodies) {
+            diceBodies.clear()
+        }
     }
 
-    fun getDice(): List<DiceBody> = diceBodies.toList()
+    fun getDice(): List<DiceBody> {
+        synchronized(diceBodies) {
+            return diceBodies.toList()
+        }
+    }
 
     fun step(dt: Float) {
-        for (dice in diceBodies) {
+        val snapshot: List<DiceBody>
+        synchronized(diceBodies) {
+            snapshot = diceBodies.toList()
+        }
+        for (dice in snapshot) {
             if (dice.isSleeping) continue
             dice.velY += gravity * dt
             dice.update(dt)
             handleGroundCollision(dice)
             handleWallCollision(dice)
         }
-        handleDiceDiceCollisions()
+        handleDiceDiceCollisions(snapshot)
     }
 
     private fun handleGroundCollision(dice: DiceBody) {
-        if (dice.posY - dice.boundingRadius < groundY) {
-            dice.posY = groundY + dice.boundingRadius
+        val vertices = dice.mesh.vertices
+        var maxPenetration = 0f
+
+        for (i in vertices.indices step 3) {
+            val localX = vertices[i]
+            val localY = vertices[i + 1]
+            val localZ = vertices[i + 2]
+            val rotated = dice.orientation.rotateVector(floatArrayOf(localX, localY, localZ))
+            val worldY = dice.posY + rotated[1]
+            val penetration = groundY - worldY
+            if (penetration > maxPenetration) {
+                maxPenetration = penetration
+            }
+        }
+
+        if (maxPenetration > 0f) {
+            dice.posY += maxPenetration
 
             if (dice.velY < 0f) {
                 val impactSpeed = abs(dice.velY)
-                val newVelY = -dice.velY * dice.restitution
 
-                if (abs(newVelY) < 0.3f) {
-                    dice.velY = 0f
+                if (impactSpeed > 0.5f) {
+                    val newVelY = -dice.velY * dice.restitution
+                    if (abs(newVelY) < 0.3f) {
+                        dice.velY = 0f
+                    } else {
+                        dice.velY = newVelY
+                    }
+                    dice.velX *= (1f - dice.friction * 0.5f)
+                    dice.velZ *= (1f - dice.friction * 0.5f)
+                    val angImpact = impactSpeed * 0.5f
+                    dice.angVelX += (Math.random().toFloat() - 0.5f) * angImpact
+                    dice.angVelZ += (Math.random().toFloat() - 0.5f) * angImpact
+                    onCollision?.invoke(impactSpeed)
                 } else {
-                    dice.velY = newVelY
+                    dice.velY = 0f
+                    dice.velX *= 0.8f
+                    dice.velZ *= 0.8f
+                    dice.angVelX *= 0.8f
+                    dice.angVelY *= 0.8f
+                    dice.angVelZ *= 0.8f
                 }
-
-                dice.velX *= (1f - dice.friction * 0.3f)
-                dice.velZ *= (1f - dice.friction * 0.3f)
-
-                val angImpact = impactSpeed * 0.5f
-                dice.angVelX += (Math.random().toFloat() - 0.5f) * angImpact
-                dice.angVelZ += (Math.random().toFloat() - 0.5f) * angImpact
-
-                onCollision?.invoke(impactSpeed)
             }
         }
     }
@@ -256,11 +291,11 @@ class PhysicsWorld {
         }
     }
 
-    private fun handleDiceDiceCollisions() {
-        for (i in diceBodies.indices) {
-            for (j in i + 1 until diceBodies.size) {
-                val a = diceBodies[i]
-                val b = diceBodies[j]
+    private fun handleDiceDiceCollisions(bodies: List<DiceBody>) {
+        for (i in bodies.indices) {
+            for (j in i + 1 until bodies.size) {
+                val a = bodies[i]
+                val b = bodies[j]
                 if (a.isSleeping && b.isSleeping) continue
 
                 val dx = b.posX - a.posX
@@ -313,49 +348,57 @@ class PhysicsWorld {
         }
     }
 
-    fun allDiceStopped(): Boolean = diceBodies.all { it.isSleeping }
+    fun allDiceStopped(): Boolean {
+        synchronized(diceBodies) {
+            return diceBodies.all { it.isSleeping }
+        }
+    }
 
     fun throwDice() {
-        for (dice in diceBodies) {
-            val spread = diceBodies.size * 0.3f
-            dice.posX = (Math.random().toFloat() - 0.5f) * spread
-            dice.posY = 3f + Math.random().toFloat() * 2f
-            dice.posZ = (Math.random().toFloat() - 0.5f) * spread
+        synchronized(diceBodies) {
+            for (dice in diceBodies) {
+                val spread = diceBodies.size * 0.3f
+                dice.posX = (Math.random().toFloat() - 0.5f) * spread
+                dice.posY = 3f + Math.random().toFloat() * 2f
+                dice.posZ = (Math.random().toFloat() - 0.5f) * spread
 
-            dice.velX = (Math.random().toFloat() - 0.5f) * 6f
-            dice.velY = -2f + Math.random().toFloat() * 2f
-            dice.velZ = (Math.random().toFloat() - 0.5f) * 6f
+                dice.velX = (Math.random().toFloat() - 0.5f) * 6f
+                dice.velY = -2f + Math.random().toFloat() * 2f
+                dice.velZ = (Math.random().toFloat() - 0.5f) * 6f
 
-            dice.angVelX = (Math.random().toFloat() - 0.5f) * 15f
-            dice.angVelY = (Math.random().toFloat() - 0.5f) * 15f
-            dice.angVelZ = (Math.random().toFloat() - 0.5f) * 15f
+                dice.angVelX = (Math.random().toFloat() - 0.5f) * 15f
+                dice.angVelY = (Math.random().toFloat() - 0.5f) * 15f
+                dice.angVelZ = (Math.random().toFloat() - 0.5f) * 15f
 
-            dice.orientation = Quaternion.fromAxisAngle(
-                floatArrayOf(
-                    Math.random().toFloat(),
-                    Math.random().toFloat(),
-                    Math.random().toFloat()
-                ),
-                Math.random().toFloat() * 6.28f
-            )
-            dice.orientation.normalize()
+                dice.orientation = Quaternion.fromAxisAngle(
+                    floatArrayOf(
+                        Math.random().toFloat(),
+                        Math.random().toFloat(),
+                        Math.random().toFloat()
+                    ),
+                    Math.random().toFloat() * 6.28f
+                )
+                dice.orientation.normalize()
 
-            dice.isSleeping = false
-            dice.sleepTimer = 0f
+                dice.isSleeping = false
+                dice.sleepTimer = 0f
+            }
         }
     }
 
     fun applyBounce() {
-        for (dice in diceBodies) {
-            if (!dice.isSleeping) {
-                dice.velY += 5f + Math.random().toFloat() * 3f
-                dice.velX += (Math.random().toFloat() - 0.5f) * 3f
-                dice.velZ += (Math.random().toFloat() - 0.5f) * 3f
-                dice.angVelX += (Math.random().toFloat() - 0.5f) * 8f
-                dice.angVelY += (Math.random().toFloat() - 0.5f) * 8f
-                dice.angVelZ += (Math.random().toFloat() - 0.5f) * 8f
-                dice.isSleeping = false
-                dice.sleepTimer = 0f
+        synchronized(diceBodies) {
+            for (dice in diceBodies) {
+                if (!dice.isSleeping) {
+                    dice.velY += 5f + Math.random().toFloat() * 3f
+                    dice.velX += (Math.random().toFloat() - 0.5f) * 3f
+                    dice.velZ += (Math.random().toFloat() - 0.5f) * 3f
+                    dice.angVelX += (Math.random().toFloat() - 0.5f) * 8f
+                    dice.angVelY += (Math.random().toFloat() - 0.5f) * 8f
+                    dice.angVelZ += (Math.random().toFloat() - 0.5f) * 8f
+                    dice.isSleeping = false
+                    dice.sleepTimer = 0f
+                }
             }
         }
     }

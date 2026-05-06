@@ -2,8 +2,15 @@ package com.dice3d.app.engine
 
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
+import android.opengl.GLUtils
 import android.opengl.Matrix
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Typeface
 import com.dice3d.app.data.DiceType
+import kotlin.math.abs
+import kotlin.math.sqrt
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
@@ -17,6 +24,8 @@ class GLRenderer(
 
     private var diceProgram = 0
     private var groundProgram = 0
+    private var numberProgram = 0
+    private var digitTextureId = 0
 
     private val diceRenderData = mutableMapOf<Int, DiceRenderData>()
     private var groundRenderData: GroundRenderData? = null
@@ -89,7 +98,9 @@ class GLRenderer(
 
         diceProgram = createProgram(DICE_VERTEX_SHADER, DICE_FRAGMENT_SHADER)
         groundProgram = createProgram(GROUND_VERTEX_SHADER, GROUND_FRAGMENT_SHADER)
+        numberProgram = createProgram(NUMBER_VERTEX_SHADER, NUMBER_FRAGMENT_SHADER)
 
+        digitTextureId = createDigitTextureAtlas()
         createGroundMesh()
     }
 
@@ -101,9 +112,9 @@ class GLRenderer(
 
     override fun onDrawFrame(gl: GL10?) {
         if (isDarkScene) {
-            GLES20.glClearColor(0.07f, 0.07f, 0.09f, 1f)
+            GLES20.glClearColor(0.05f, 0.08f, 0.06f, 1f)
         } else {
-            GLES20.glClearColor(0.85f, 0.85f, 0.88f, 1f)
+            GLES20.glClearColor(0.75f, 0.82f, 0.78f, 1f)
         }
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
 
@@ -112,6 +123,7 @@ class GLRenderer(
 
         drawGround()
         drawDice()
+        drawFaceNumbers()
     }
 
     private fun drawDice() {
@@ -169,7 +181,7 @@ class GLRenderer(
         val mvpHandle = GLES20.glGetUniformLocation(groundProgram, "uMVPMatrix")
         val colorHandle = GLES20.glGetUniformLocation(groundProgram, "uColor")
 
-        val groundColor = if (isDarkScene) floatArrayOf(0.12f, 0.12f, 0.14f, 1f) else floatArrayOf(0.6f, 0.6f, 0.65f, 1f)
+        val groundColor = if (isDarkScene) floatArrayOf(0.08f, 0.18f, 0.10f, 1f) else floatArrayOf(0.2f, 0.45f, 0.25f, 1f)
         GLES20.glUniform4fv(colorHandle, 1, groundColor, 0)
         GLES20.glUniformMatrix4fv(mvpHandle, 1, false, vpMatrix, 0)
 
@@ -230,6 +242,186 @@ class GLRenderer(
         }
     }
 
+    private fun createDigitTextureAtlas(): Int {
+        val cellSize = 128
+        val bitmap = Bitmap.createBitmap(cellSize * 10, cellSize, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = Paint().apply {
+            color = android.graphics.Color.WHITE
+            textSize = cellSize * 0.75f
+            typeface = Typeface.DEFAULT_BOLD
+            textAlign = Paint.Align.CENTER
+            isAntiAlias = true
+        }
+        for (i in 0..9) {
+            canvas.drawText(i.toString(), i * cellSize + cellSize / 2f, cellSize * 0.8f, paint)
+        }
+        val textureIds = IntArray(1)
+        GLES20.glGenTextures(1, textureIds, 0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureIds[0])
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+        GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
+        bitmap.recycle()
+        return textureIds[0]
+    }
+
+    private fun drawFaceNumbers() {
+        val vertexList = mutableListOf<Float>()
+        val texCoordList = mutableListOf<Float>()
+
+        val modelMatrix = FloatArray(16)
+
+        for ((id, data) in diceRenderData) {
+            val body = physicsBodies[id] ?: continue
+            val transform = body.getTransformMatrix()
+            System.arraycopy(transform, 0, modelMatrix, 0, 16)
+
+            for (faceInfo in data.mesh.faceInfos) {
+                val cx = faceInfo.faceCenter[0]
+                val cy = faceInfo.faceCenter[1]
+                val cz = faceInfo.faceCenter[2]
+
+                val worldCenterX = modelMatrix[0] * cx + modelMatrix[4] * cy + modelMatrix[8] * cz + modelMatrix[12]
+                val worldCenterY = modelMatrix[1] * cx + modelMatrix[5] * cy + modelMatrix[9] * cz + modelMatrix[13]
+                val worldCenterZ = modelMatrix[2] * cx + modelMatrix[6] * cy + modelMatrix[10] * cz + modelMatrix[14]
+
+                val nx = faceInfo.faceNormal[0]
+                val ny = faceInfo.faceNormal[1]
+                val nz = faceInfo.faceNormal[2]
+                var wnx = modelMatrix[0] * nx + modelMatrix[4] * ny + modelMatrix[8] * nz
+                var wny = modelMatrix[1] * nx + modelMatrix[5] * ny + modelMatrix[9] * nz
+                var wnz = modelMatrix[2] * nx + modelMatrix[6] * ny + modelMatrix[10] * nz
+                val nLen = sqrt(wnx * wnx + wny * wny + wnz * wnz)
+                if (nLen > 0.0001f) { wnx /= nLen; wny /= nLen; wnz /= nLen }
+
+                val offset = 0.015f
+                val pcx = worldCenterX + wnx * offset
+                val pcy = worldCenterY + wny * offset
+                val pcz = worldCenterZ + wnz * offset
+
+                val upX: Float
+                val upY: Float
+                val upZ: Float
+                if (abs(wny) < 0.99f) { upX = 0f; upY = 1f; upZ = 0f } else { upX = 1f; upY = 0f; upZ = 0f }
+
+                var tx = wny * upZ - wnz * upY
+                var ty = wnz * upX - wnx * upZ
+                var tz = wnx * upY - wny * upX
+                val tLen = sqrt(tx * tx + ty * ty + tz * tz)
+                if (tLen > 0.0001f) { tx /= tLen; ty /= tLen; tz /= tLen }
+
+                val bx = wny * tz - wnz * ty
+                val by = wnz * tx - wnx * tz
+                val bz = wnx * ty - wny * tx
+
+                val digits = faceInfo.faceNumber.toString().map { it - '0' }
+                val digitCount = digits.size
+                val digitWidth = 0.07f
+                val digitHeight = 0.10f
+                val totalWidth = digitWidth * digitCount
+                val startX = -totalWidth / 2f
+
+                for (di in digits.indices) {
+                    val digit = digits[di]
+                    val centerX = startX + digitWidth * di + digitWidth / 2f
+
+                    val qx = pcx + tx * centerX
+                    val qy = pcy + ty * centerX
+                    val qz = pcz + tz * centerX
+
+                    val hw = digitWidth / 2f
+                    val hh = digitHeight / 2f
+
+                    val blx = qx - tx * hw - bx * hh
+                    val bly = qy - ty * hw - by * hh
+                    val blz = qz - tz * hw - bz * hh
+                    val brx = qx + tx * hw - bx * hh
+                    val bry = qy + ty * hw - by * hh
+                    val brz = qz + tz * hw - bz * hh
+                    val trx = qx + tx * hw + bx * hh
+                    val try_ = qy + ty * hw + by * hh
+                    val trz = qz + tz * hw + bz * hh
+                    val tlx = qx - tx * hw + bx * hh
+                    val tly = qy - ty * hw + by * hh
+                    val tlz = qz - tz * hw + bz * hh
+
+                    vertexList.add(blx); vertexList.add(bly); vertexList.add(blz)
+                    vertexList.add(brx); vertexList.add(bry); vertexList.add(brz)
+                    vertexList.add(trx); vertexList.add(try_); vertexList.add(trz)
+
+                    vertexList.add(blx); vertexList.add(bly); vertexList.add(blz)
+                    vertexList.add(trx); vertexList.add(try_); vertexList.add(trz)
+                    vertexList.add(tlx); vertexList.add(tly); vertexList.add(tlz)
+
+                    val u0 = digit / 10f
+                    val u1 = (digit + 1) / 10f
+
+                    texCoordList.add(u0); texCoordList.add(1f)
+                    texCoordList.add(u1); texCoordList.add(1f)
+                    texCoordList.add(u1); texCoordList.add(0f)
+
+                    texCoordList.add(u0); texCoordList.add(1f)
+                    texCoordList.add(u1); texCoordList.add(0f)
+                    texCoordList.add(u0); texCoordList.add(0f)
+                }
+            }
+        }
+
+        if (vertexList.isEmpty()) return
+
+        val vertices = vertexList.toFloatArray()
+        val texCoords = texCoordList.toFloatArray()
+
+        val vb = java.nio.ByteBuffer.allocateDirect(vertices.size * 4)
+            .order(java.nio.ByteOrder.nativeOrder()).asFloatBuffer()
+        vb.put(vertices).position(0)
+
+        val tb = java.nio.ByteBuffer.allocateDirect(texCoords.size * 4)
+            .order(java.nio.ByteOrder.nativeOrder()).asFloatBuffer()
+        tb.put(texCoords).position(0)
+
+        GLES20.glUseProgram(numberProgram)
+
+        val posHandle = GLES20.glGetAttribLocation(numberProgram, "aPosition")
+        val texHandle = GLES20.glGetAttribLocation(numberProgram, "aTexCoord")
+        val mvpHandle = GLES20.glGetUniformLocation(numberProgram, "uMVPMatrix")
+        val colorHandle = GLES20.glGetUniformLocation(numberProgram, "uColor")
+        val texUnitHandle = GLES20.glGetUniformLocation(numberProgram, "uTexture")
+
+        GLES20.glUniformMatrix4fv(mvpHandle, 1, false, vpMatrix, 0)
+
+        val luminance = diceColor[0] * 0.299f + diceColor[1] * 0.587f + diceColor[2] * 0.114f
+        val numberColor = if (luminance > 0.5f) floatArrayOf(0.05f, 0.05f, 0.05f, 1f) else floatArrayOf(0.95f, 0.95f, 0.95f, 1f)
+        GLES20.glUniform4fv(colorHandle, 1, numberColor, 0)
+
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, digitTextureId)
+        GLES20.glUniform1i(texUnitHandle, 0)
+
+        GLES20.glEnableVertexAttribArray(posHandle)
+        GLES20.glEnableVertexAttribArray(texHandle)
+
+        vb.position(0)
+        GLES20.glVertexAttribPointer(posHandle, 3, GLES20.GL_FLOAT, false, 12, vb)
+        tb.position(0)
+        GLES20.glVertexAttribPointer(texHandle, 2, GLES20.GL_FLOAT, false, 8, tb)
+
+        GLES20.glEnable(GLES20.GL_BLEND)
+        GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+        GLES20.glDepthMask(false)
+
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, vertices.size / 3)
+
+        GLES20.glDepthMask(true)
+        GLES20.glDisable(GLES20.GL_BLEND)
+
+        GLES20.glDisableVertexAttribArray(posHandle)
+        GLES20.glDisableVertexAttribArray(texHandle)
+    }
+
     companion object {
         private const val DICE_VERTEX_SHADER = """
             uniform mat4 uMVPMatrix;
@@ -284,6 +476,28 @@ class GLRenderer(
                 float gridLine = 1.0 - smoothstep(0.0, 0.05, line);
                 vec3 color = mix(uColor.rgb, uColor.rgb * 0.7, gridLine * 0.3);
                 gl_FragColor = vec4(color, uColor.a);
+            }
+        """
+
+        private const val NUMBER_VERTEX_SHADER = """
+            uniform mat4 uMVPMatrix;
+            attribute vec4 aPosition;
+            attribute vec2 aTexCoord;
+            varying vec2 vTexCoord;
+            void main() {
+                gl_Position = uMVPMatrix * aPosition;
+                vTexCoord = aTexCoord;
+            }
+        """
+
+        private const val NUMBER_FRAGMENT_SHADER = """
+            precision mediump float;
+            uniform sampler2D uTexture;
+            uniform vec4 uColor;
+            varying vec2 vTexCoord;
+            void main() {
+                vec4 texColor = texture2D(uTexture, vTexCoord);
+                gl_FragColor = vec4(uColor.rgb, uColor.a * texColor.a);
             }
         """
     }

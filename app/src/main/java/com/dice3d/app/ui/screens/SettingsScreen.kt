@@ -4,6 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -97,21 +98,21 @@ fun SettingsScreen(
                     Spacer(Modifier.height(12.dp))
 
                     Text("骰子类型", style = MaterialTheme.typography.bodyMedium)
-                    Row(
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         DiceType.entries.forEach { type ->
                             OutlinedButton(
                                 onClick = { viewModel.updateDiceType(type) },
-                                modifier = Modifier.weight(1f),
                                 colors = ButtonDefaults.outlinedButtonColors(
                                     containerColor = if (settings.diceType == type)
                                         MaterialTheme.colorScheme.primaryContainer
                                     else Color.Transparent
                                 )
                             ) {
-                                Text(type.displayName, fontSize = 12.sp)
+                                Text(type.displayName, fontSize = 13.sp)
                             }
                         }
                     }

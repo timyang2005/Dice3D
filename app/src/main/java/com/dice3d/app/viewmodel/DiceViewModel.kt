@@ -109,8 +109,8 @@ class DiceViewModel(application: Application) : AndroidViewModel(application) {
         for (i in 0 until currentDiceCount) {
             val mesh = DiceMeshGenerator.generateMesh(currentDiceType)
             val body = DiceBody(i, mesh)
-            body.posX = (i - currentDiceCount / 2f) * 1.5f
-            body.posY = 0.7f
+            body.posX = (i - currentDiceCount / 2f) * 1.2f
+            body.posY = 0.5f
             body.posZ = 0f
             body.isSleeping = true
 
@@ -143,8 +143,7 @@ class DiceViewModel(application: Application) : AndroidViewModel(application) {
 
                 if (physicsWorld.allDiceStopped() && _isRolling.value) {
                     val results = physicsWorld.getDice().map { body ->
-                        val face = body.getUpFace()
-                        if (currentDiceType == DiceType.D100) face * 10 else face
+                        body.getUpFace()
                     }
                     _diceResults.value = results
                     _totalResult.value = results.sum()
