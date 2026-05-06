@@ -28,8 +28,8 @@ jobs:
 
     - name: Install Android Platform & Build Tools
       run: |
-        sdkmanager --install "platforms;android-36"
-        sdkmanager --install "build-tools;36.0.0"
+        sdkmanager --install "platforms;android-35"
+        sdkmanager --install "build-tools;35.0.0"
 
     - name: Generate Release Keystore
       run: |
