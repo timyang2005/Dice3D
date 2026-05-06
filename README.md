@@ -23,3 +23,10 @@
 ## 下载
 
 从 [GitHub Releases](https://github.com/timyang2005/Dice3D/releases) 下载最新 APK。
+
+## 更新日志
+
+### v1.1.0
+- 集成 Libbulletjme 物理引擎
+- 优化物理参数（真实重力、摩擦力、弹性）
+- 使用固定时间步长物理循环
