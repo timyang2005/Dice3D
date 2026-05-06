@@ -82,5 +82,7 @@ dependencies {
     implementation("androidx.room:room-ktx:2.6.1")
     kapt("androidx.room:room-compiler:2.6.1")
 
+    implementation("com.github.stephengold:Libbulletjme-Android:22.0.3:SpDebug@aar")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
