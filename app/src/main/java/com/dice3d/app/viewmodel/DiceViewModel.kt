@@ -109,9 +109,9 @@ class DiceViewModel(application: Application) : AndroidViewModel(application) {
         for (i in 0 until currentDiceCount) {
             val mesh = DiceMeshGenerator.generateMesh(currentDiceType)
             val body = DiceBody(i, mesh)
-            body.posX = (i - currentDiceCount / 2f) * 1.2f
-            body.posY = 0.5f
-            body.posZ = 0f
+            body.pos.x = (i - currentDiceCount / 2f) * 1.2f
+            body.pos.y = 0.5f
+            body.pos.z = 0f
 
             physicsWorld.addDice(body)
             glRenderer.addDiceMesh(i, mesh)

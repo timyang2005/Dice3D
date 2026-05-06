@@ -1,8 +1,10 @@
-name: Android CI Build & Release
+name: Dice3D Android CI/CD
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
+    tags:
+      - 'v*'
   pull_request:
     branches: [ main ]
 
@@ -10,99 +12,187 @@ permissions:
   contents: write
   actions: read
 
+env:
+  ANDROID_COMPILE_SDK: 35
+  ANDROID_BUILD_TOOLS: 35.0.0
+  GRADLE_VERSION: 8.11.1
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
     - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
+        cache: 'gradle'
 
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
+      with:
+        api-level: 35
+        build-tools: ${{ env.ANDROID_BUILD_TOOLS }}
 
-    - name: Install Android Platform & Build Tools
+    - name: Create local.properties
       run: |
-        sdkmanager --install "platforms;android-35"
-        sdkmanager --install "build-tools;35.0.0"
+        echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+        echo "ndk.dir=$ANDROID_NDK_ROOT" >> local.properties || true
 
     - name: Generate Release Keystore
       run: |
-        cd app
+        mkdir -p app
         keytool -genkeypair -v \
-          -keystore release.keystore \
+          -keystore app/release.keystore \
           -alias release \
           -keyalg RSA \
           -keysize 2048 \
           -validity 10000 \
-          -storepass android \
-          -keypass android \
+          -storepass ${{ secrets.KEYSTORE_PASSWORD || 'android' }} \
+          -keypass ${{ secrets.KEY_PASSWORD || 'android' }} \
           -dname "CN=Dice3D, OU=Dev, O=Dice3D, L=Shanghai, ST=Shanghai, C=CN"
 
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v4
+    - name: Cache Gradle packages
+      uses: actions/cache@v4
       with:
-        gradle-version: '8.11.1'
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
 
     - name: Build Debug APK
-      run: gradle assembleDebug --stacktrace
+      run: |
+        echo "Building Debug APK..."
+        ./gradlew assembleDebug --no-daemon --stacktrace
 
     - name: Build Release APK
-      run: gradle assembleRelease --stacktrace
-
-    - name: List APK outputs
-      run: find app/build/outputs/apk -name "*.apk" || echo "No APK files found"
+      run: |
+        echo "Building Release APK..."
+        ./gradlew assembleRelease --no-daemon --stacktrace
 
     - name: Upload Debug APK
       uses: actions/upload-artifact@v4
       with:
         name: debug-apk
-        path: app/build/outputs/apk/debug/*.apk
+        path: app/build/outputs/apk/debug/app-debug.apk
+        retention-days: 30
 
     - name: Upload Release APK
       uses: actions/upload-artifact@v4
       with:
         name: release-apk
-        path: app/build/outputs/apk/release/*.apk
+        path: app/build/outputs/apk/release/app-release.apk
+        retention-days: 90
+
+    - name: Upload Build Reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-reports
+        path: |
+          app/build/reports/
+          app/build/outputs/
+        retention-days: 7
 
   release:
     needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: |
+      github.ref == 'refs/heads/main' && 
+      github.event_name == 'push' &&
+      needs.build.result == 'success'
     permissions:
       contents: write
 
     steps:
-    - uses: actions/download-artifact@v4
-      with:
-        name: release-apk
-        path: release/
-
-    - uses: actions/download-artifact@v4
+    - name: Download Debug APK
+      uses: actions/download-artifact@v4
       with:
         name: debug-apk
-        path: debug/
+        path: artifacts/
 
-    - name: List downloaded files
-      run: ls -la release/ debug/
+    - name: Download Release APK
+      uses: actions/download-artifact@v4
+      with:
+        name: release-apk
+        path: artifacts/
 
-    - name: Create Release
+    - name: List Artifacts
+      run: |
+        echo "=== Downloaded Artifacts ==="
+        ls -lh artifacts/
+
+    - name: Create Release Directory
+      run: |
+        mkdir -p release
+        cp artifacts/*.apk release/
+
+    - name: Determine Version
+      id: version
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/}
+        else
+          VERSION="v1.0.0-build-${{ github.run_number }}"
+        fi
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "Version: $VERSION"
+
+    - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: v1.0.0-${{ github.run_number }}
-        name: Release v1.0.0 Build #${{ github.run_number }}
+        tag_name: ${{ steps.version.outputs.VERSION }}
+        name: Dice3D ${{ steps.version.outputs.VERSION }}
         body: |
-          3D 物理骰子应用 - 自动构建版本
-
-          构建编号: ${{ github.run_number }}
-          提交: ${{ github.sha }}
-        files: |
-          release/*.apk
-          debug/*.apk
+          Dice3D Physics Dice App
+          
+          Build Number: ${{ github.run_number }}
+          Commit: ${{ github.sha }}
+          
+          Included Files:
+          - Debug APK
+          - Release APK (signed)
+          
+          Features:
+          - 3D physics dice simulation
+          - Multiple dice types (D4, D6, D8, D10, D12, D20, D100)
+          - Haptic feedback
+          - Gyroscope throw
+          - Dark mode support
+          
+          Build Date: $(date -u +'%Y-%m-%d %H:%M:%S UTC')
+          Triggered by: ${{ github.actor }}
+          
+        files: release/*.apk
+        draft: false
+        prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify:
+    needs: [build, release]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Build Summary
+      run: |
+        echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Build | ${{ needs.build.result == 'success' && 'Success' || 'Failed' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Release | ${{ needs.release.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Commit: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "Workflow: [${{ github.workflow }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
