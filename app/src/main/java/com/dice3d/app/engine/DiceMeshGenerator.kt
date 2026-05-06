@@ -22,8 +22,6 @@ data class FaceInfo(
 
 object DiceMeshGenerator {
 
-    private const val BEVEL_SEGMENTS = 2
-
     fun generateMesh(diceType: DiceType): DiceMesh {
         return when (diceType) {
             DiceType.D4 -> generateTetrahedron()
