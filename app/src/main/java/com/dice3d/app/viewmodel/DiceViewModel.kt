@@ -112,7 +112,6 @@ class DiceViewModel(application: Application) : AndroidViewModel(application) {
             body.posX = (i - currentDiceCount / 2f) * 1.2f
             body.posY = 0.5f
             body.posZ = 0f
-            body.isSleeping = true
 
             physicsWorld.addDice(body)
             glRenderer.addDiceMesh(i, mesh)

@@ -8,7 +8,6 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Typeface
-import com.dice3d.app.data.DiceType
 import kotlin.math.abs
 import kotlin.math.sqrt
 import javax.microedition.khronos.egl.EGLConfig
@@ -203,7 +202,7 @@ class GLRenderer(
              size, 0f,  size,
             -size, 0f,  size
         )
-        val indices = shortArrayOf(0, 1, 2, 0, 2, 3)
+        val indices = shortArrayOf(0, 2, 1, 0, 3, 2)
 
         val vb = java.nio.ByteBuffer.allocateDirect(vertices.size * 4)
             .order(java.nio.ByteOrder.nativeOrder()).asFloatBuffer()
