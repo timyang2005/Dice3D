@@ -12,10 +12,11 @@ import com.dice3d.app.data.HistoryDatabase
 import com.dice3d.app.data.RollResult
 import com.dice3d.app.data.SettingsRepository
 import com.dice3d.app.engine.CameraController
-import com.dice3d.app.engine.DiceBody
 import com.dice3d.app.engine.DiceMeshGenerator
 import com.dice3d.app.engine.GLRenderer
-import com.dice3d.app.engine.PhysicsWorld
+import com.dice3d.app.physics.DicePhysicsBody
+import com.dice3d.app.physics.LibbulletjmeAdapter
+import com.dice3d.app.physics.PhysicsAdapter
 import com.dice3d.app.sensor.GyroThrowDetector
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -33,7 +34,7 @@ class DiceViewModel(application: Application) : AndroidViewModel(application) {
     private val gyroDetector = GyroThrowDetector(application) { rollDice() }
 
     val cameraController = CameraController()
-    val physicsWorld = PhysicsWorld()
+    val physicsAdapter: PhysicsAdapter = LibbulletjmeAdapter()
     val glRenderer = GLRenderer(cameraController)
 
     val settings: StateFlow<AppSettings> = settingsRepo.settings
@@ -52,9 +53,11 @@ class DiceViewModel(application: Application) : AndroidViewModel(application) {
     private var currentDiceCount = 1
     private var physicsLoopRunning = false
     private var lastPhysicsTime = 0L
+    private var diceBodyMap = mutableMapOf<Int, DicePhysicsBody>()
 
     init {
-        physicsWorld.onCollision = { intensity ->
+        physicsAdapter.initialize()
+        physicsAdapter.setOnCollisionListener { intensity ->
             val s = settings.value
             if (s.soundEnabled) audioManager.playHit(intensity / 10f)
             if (s.hapticEnabled) hapticManager.vibrateOnCollision(intensity / 10f)
@@ -90,7 +93,7 @@ class DiceViewModel(application: Application) : AndroidViewModel(application) {
         if (s.hapticEnabled) hapticManager.vibrateOnRoll()
 
         if (_isRolling.value) {
-            physicsWorld.applyBounce()
+            applyBounce()
             return
         }
 
@@ -98,22 +101,95 @@ class DiceViewModel(application: Application) : AndroidViewModel(application) {
         _diceResults.value = emptyList()
         _totalResult.value = 0
 
-        physicsWorld.throwDice()
+        throwDice()
         startPhysicsLoop()
     }
 
+    private fun throwDice() {
+        diceBodyMap.values.forEach { body ->
+            val spread = currentDiceCount * 0.4f
+            body.position = floatArrayOf(
+                (Math.random().toFloat() - 0.5f) * spread,
+                3.5f + Math.random().toFloat() * 2f,
+                (Math.random().toFloat() - 0.5f) * spread
+            )
+
+            body.linearVelocity = floatArrayOf(
+                (Math.random().toFloat() - 0.5f) * 6f,
+                -2f + Math.random().toFloat() * 3f,
+                (Math.random().toFloat() - 0.5f) * 6f
+            )
+
+            body.angularVelocity = floatArrayOf(
+                (Math.random().toFloat() - 0.5f) * 15f,
+                (Math.random().toFloat() - 0.5f) * 15f,
+                (Math.random().toFloat() - 0.5f) * 15f
+            )
+
+            val angle = Math.random().toFloat() * Math.PI.toFloat() * 2f
+            val axis = floatArrayOf(
+                Math.random().toFloat(),
+                Math.random().toFloat(),
+                Math.random().toFloat()
+            )
+            val len = Math.sqrt(axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]).toFloat()
+            val sin = Math.sin(angle * 0.5).toFloat()
+            body.orientation = floatArrayOf(
+                (axis[0] / len) * sin,
+                (axis[1] / len) * sin,
+                (axis[2] / len) * sin,
+                Math.cos(angle * 0.5).toFloat()
+            )
+
+            body.wakeUp()
+        }
+    }
+
+    private fun applyBounce() {
+        diceBodyMap.values.forEach { body ->
+            if (!body.isSleeping) {
+                val vel = body.linearVelocity
+                vel[1] += 5f + Math.random().toFloat() * 3f
+                vel[0] += (Math.random().toFloat() - 0.5f) * 3f
+                vel[2] += (Math.random().toFloat() - 0.5f) * 3f
+                body.linearVelocity = vel
+
+                val angVel = body.angularVelocity
+                angVel[0] += (Math.random().toFloat() - 0.5f) * 8f
+                angVel[1] += (Math.random().toFloat() - 0.5f) * 8f
+                angVel[2] += (Math.random().toFloat() - 0.5f) * 8f
+                body.angularVelocity = angVel
+
+                body.wakeUp()
+            }
+        }
+    }
+
     private fun rebuildDice() {
-        physicsWorld.clearDice()
+        physicsAdapter.clear()
+        diceBodyMap.clear()
         glRenderer.clearDiceMeshes()
 
         for (i in 0 until currentDiceCount) {
             val mesh = DiceMeshGenerator.generateMesh(currentDiceType)
-            val body = DiceBody(i, mesh)
-            body.posX = (i - currentDiceCount / 2f) * 1.2f
-            body.posY = 0.5f
-            body.posZ = 0f
+            val boundingRadius = when (currentDiceType) {
+                DiceType.D4 -> 0.6f
+                DiceType.D6 -> 0.5f
+                DiceType.D8 -> 0.55f
+                DiceType.D10 -> 0.55f
+                DiceType.D12 -> 0.6f
+                DiceType.D20 -> 0.6f
+                DiceType.D100 -> 0.6f
+            }
 
-            physicsWorld.addDice(body)
+            val body = physicsAdapter.createDiceBody(i, mesh, boundingRadius)
+            body.position = floatArrayOf(
+                (i - currentDiceCount / 2f) * 1.2f,
+                0.5f,
+                0f
+            )
+
+            diceBodyMap[i] = body
             glRenderer.addDiceMesh(i, mesh)
         }
     }
@@ -132,16 +208,18 @@ class DiceViewModel(application: Application) : AndroidViewModel(application) {
                 val speed = settings.value.simSpeed
                 dt = (dt * speed).coerceIn(0.001f, 0.033f)
 
-                val steps = 3
-                val subDt = dt / steps
-                for (i in 0 until steps) {
-                    physicsWorld.step(subDt)
+                val fixedStep = 1f / 90f
+                var accumulator = dt
+
+                while (accumulator >= fixedStep) {
+                    physicsAdapter.step(fixedStep)
+                    accumulator -= fixedStep
                 }
 
-                glRenderer.updatePhysicsBodies(physicsWorld.getDice())
+                glRenderer.updatePhysicsBodies(physicsAdapter.getAllBodies())
 
-                if (physicsWorld.allDiceStopped() && _isRolling.value) {
-                    val results = physicsWorld.getDice().map { body ->
+                if (allDiceStopped() && _isRolling.value) {
+                    val results = physicsAdapter.getAllBodies().map { body ->
                         body.getUpFace()
                     }
                     _diceResults.value = results
@@ -169,6 +247,10 @@ class DiceViewModel(application: Application) : AndroidViewModel(application) {
                 try { Thread.sleep(16) } catch (_: InterruptedException) { break }
             }
         }.start()
+    }
+
+    private fun allDiceStopped(): Boolean {
+        return physicsAdapter.getAllBodies().all { it.isSleeping }
     }
 
     fun resetCamera() {
