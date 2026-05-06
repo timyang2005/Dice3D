@@ -6,7 +6,6 @@ import com.jme3.bullet.collision.shapes.HullCollisionShape
 import com.jme3.bullet.collision.shapes.PlaneCollisionShape
 import com.jme3.bullet.objects.PhysicsBody
 import com.jme3.bullet.objects.PhysicsRigidBody
-import com.jme3.math.Matrix3f
 import com.jme3.math.Plane
 import com.jme3.math.Quaternion
 import com.jme3.math.Vector3f
@@ -158,13 +157,14 @@ private class LibbulletjmeBody(
 
     override fun getUpFace(): Int {
         val rot = rigidBody.getPhysicsRotation(null as Quaternion?)
+        val rotMat = rot.toRotationMatrix()
         val upVector = Vector3f(0f, 1f, 0f)
         var bestDot = -2f
         var bestFace = 1
 
         for (faceInfo in mesh.faceInfos) {
             val normal = Vector3f(faceInfo.faceNormal[0], faceInfo.faceNormal[1], faceInfo.faceNormal[2])
-            val rotatedNormal = rot.mult(normal)
+            val rotatedNormal = rotMat.mult(normal, null)
             val dot = rotatedNormal.dot(upVector)
             if (dot > bestDot) {
                 bestDot = dot
@@ -180,9 +180,9 @@ private class LibbulletjmeBody(
         val rot = rigidBody.getPhysicsRotation(null as Quaternion?)
         val mat = rot.toRotationMatrix()
 
-        result[0] = mat.m00; result[1] = mat.m10; result[2] = mat.m20; result[3] = 0f
-        result[4] = mat.m01; result[5] = mat.m11; result[6] = mat.m21; result[7] = 0f
-        result[8] = mat.m02; result[9] = mat.m12; result[10] = mat.m22; result[11] = 0f
+        result[0] = mat.get(0, 0); result[1] = mat.get(1, 0); result[2] = mat.get(2, 0); result[3] = 0f
+        result[4] = mat.get(0, 1); result[5] = mat.get(1, 1); result[6] = mat.get(2, 1); result[7] = 0f
+        result[8] = mat.get(0, 2); result[9] = mat.get(1, 2); result[10] = mat.get(2, 2); result[11] = 0f
         result[12] = pos.x; result[13] = pos.y; result[14] = pos.z; result[15] = 1f
 
         return result
