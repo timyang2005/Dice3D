@@ -6,27 +6,6 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.math.min
 import kotlin.math.max
-import kotlin.math.PI
-
-class Vec3(var x: Float = 0f, var y: Float = 0f, var z: Float = 0f) {
-    fun add(v: Vec3) = Vec3(x + v.x, y + v.y, z + v.z)
-    fun sub(v: Vec3) = Vec3(x - v.x, y - v.y, z - v.z)
-    fun mul(s: Float) = Vec3(x * s, y * s, z * s)
-    fun dot(v: Vec3): Float = x * v.x + y * v.y + z * v.z
-    fun cross(v: Vec3): Vec3 = Vec3(
-        y * v.z - z * v.y,
-        z * v.x - x * v.z,
-        x * v.y - y * v.x
-    )
-    fun length(): Float = sqrt(x * x + y * y + z * z)
-    fun lengthSquared(): Float = x * x + y * y + z * z
-    fun normalize(): Vec3 {
-        val len = length()
-        return if (len > 0.0001f) Vec3(x / len, y / len, z / len) else Vec3(0f, 0f, 0f)
-    }
-    fun toFloatArray(): FloatArray = floatArrayOf(x, y, z)
-    fun clone(): Vec3 = Vec3(x, y, z)
-}
 
 class Quaternion(
     var x: Float = 0f,
@@ -52,10 +31,10 @@ class Quaternion(
 
     fun conjugate(): Quaternion = Quaternion(-x, -y, -z, w)
 
-    fun rotateVector(v: Vec3): Vec3 {
-        val qv = Quaternion(v.x, v.y, v.z, 0f)
+    fun rotateVector(v: FloatArray): FloatArray {
+        val qv = Quaternion(v[0], v[1], v[2], 0f)
         val result = this.multiply(qv).multiply(this.conjugate())
-        return Vec3(result.x, result.y, result.z)
+        return floatArrayOf(result.x, result.y, result.z)
     }
 
     fun toMatrix4(): FloatArray {
@@ -73,25 +52,11 @@ class Quaternion(
     fun copy(): Quaternion = Quaternion(x, y, z, w)
 
     companion object {
-        fun fromAxisAngle(axis: Vec3, angle: Float): Quaternion {
+        fun fromAxisAngle(axis: FloatArray, angle: Float): Quaternion {
             val halfAngle = angle * 0.5f
             val s = sin(halfAngle)
-            return Quaternion(axis.x * s, axis.y * s, axis.z * s, cos(halfAngle))
+            return Quaternion(axis[0] * s, axis[1] * s, axis[2] * s, cos(halfAngle))
         }
-    }
-}
-
-class InertiaTensor(val Ixx: Float, val Iyy: Float, val Izz: Float) {
-    fun inverse(): InertiaTensor {
-        return InertiaTensor(
-            if (Ixx > 0.0001f) 1f / Ixx else 0f,
-            if (Iyy > 0.0001f) 1f / Iyy else 0f,
-            if (Izz > 0.0001f) 1f / Izz else 0f
-        )
-    }
-
-    fun multiply(v: Vec3): Vec3 {
-        return Vec3(Ixx * v.x, Iyy * v.y, Izz * v.z)
     }
 }
 
@@ -100,153 +65,93 @@ class DiceBody(
     val mesh: DiceMesh,
     val boundingRadius: Float = 0.5f
 ) {
-    var pos: Vec3 = Vec3(0f, 2f, 0f)
-    var vel: Vec3 = Vec3(0f, 0f, 0f)
+    var posX: Float = 0f
+    var posY: Float = 2f
+    var posZ: Float = 0f
+
+    var velX: Float = 0f
+    var velY: Float = 0f
+    var velZ: Float = 0f
 
     var orientation: Quaternion = Quaternion()
-    var angVel: Vec3 = Vec3(0f, 0f, 0f)
+    var angVelX: Float = 0f
+    var angVelY: Float = 0f
+    var angVelZ: Float = 0f
 
     var isSleeping: Boolean = false
     var sleepTimer: Float = 0f
 
     val mass: Float = 1f
-    val invMass: Float = 1f / mass
-    val restitution: Float = 0.4f
-    val friction: Float = 0.6f
-    val linearDamping: Float = 0.995f
-    val angularDamping: Float = 0.98f
+    val restitution: Float = 0.3f
+    val friction: Float = 0.5f
+    val linearDamping: Float = 0.98f
+    val angularDamping: Float = 0.96f
 
-    private val sleepLinearThreshold = 0.03f
-    private val sleepAngularThreshold = 0.05f
-    private val sleepTimeRequired = 0.4f
+    private val sleepLinearThreshold = 0.02f
+    private val sleepAngularThreshold = 0.03f
+    private val sleepTimeRequired = 0.5f
 
-    val inertiaTensorLocal: InertiaTensor
-    val invInertiaTensorLocal: InertiaTensor
-
-    init {
-        val side = 0.8f
-        val I = (1f / 6f) * mass * side * side
-        inertiaTensorLocal = InertiaTensor(I, I, I)
-        invInertiaTensorLocal = inertiaTensorLocal.inverse()
+    fun applyImpulse(ix: Float, iy: Float, iz: Float) {
+        velX += ix / mass
+        velY += iy / mass
+        velZ += iz / mass
+        isSleeping = false
+        sleepTimer = 0f
     }
 
-    fun getInertiaTensorWorld(): InertiaTensor {
-        val rotMatrix = orientation.toMatrix4()
-        val I = inertiaTensorLocal
-        val Ixx = I.Ixx
-        val Iyy = I.Iyy
-        val Izz = I.Izz
-        
-        val r00 = rotMatrix[0]
-        val r01 = rotMatrix[1]
-        val r02 = rotMatrix[2]
-        val r10 = rotMatrix[4]
-        val r11 = rotMatrix[5]
-        val r12 = rotMatrix[6]
-        val r20 = rotMatrix[8]
-        val r21 = rotMatrix[9]
-        val r22 = rotMatrix[10]
-        
-        val IxxWorld = Ixx * r00 * r00 + Iyy * r01 * r01 + Izz * r02 * r02
-        val IyyWorld = Ixx * r10 * r10 + Iyy * r11 * r11 + Izz * r12 * r12
-        val IzzWorld = Ixx * r20 * r20 + Iyy * r21 * r21 + Izz * r22 * r22
-        
-        return InertiaTensor(IxxWorld, IyyWorld, IzzWorld)
-    }
-
-    fun getInvInertiaTensorWorld(): InertiaTensor {
-        return getInertiaTensorWorld().inverse()
-    }
-
-    fun applyImpulse(impulse: Vec3) {
-        vel = vel.add(impulse.mul(invMass))
-        wakeUp()
-    }
-
-    fun applyAngularImpulse(angularImpulse: Vec3) {
-        val invI = getInvInertiaTensorWorld()
-        angVel = angVel.add(invI.multiply(angularImpulse))
-        wakeUp()
-    }
-
-    fun applyImpulseAtPoint(impulse: Vec3, point: Vec3) {
-        applyImpulse(impulse)
-        val r = point.sub(pos)
-        val angularImpulse = r.cross(impulse)
-        applyAngularImpulse(angularImpulse)
-    }
-
-    fun getPointVelocity(point: Vec3): Vec3 {
-        val r = point.sub(pos)
-        return vel.add(angVel.cross(r))
-    }
-
-    fun getWorldVertices(): List<Vec3> {
-        val result = mutableListOf<Vec3>()
-        val vertices = mesh.vertices
-        for (i in vertices.indices step 3) {
-            val local = Vec3(vertices[i], vertices[i + 1], vertices[i + 2])
-            val rotated = orientation.rotateVector(local)
-            result.add(Vec3(
-                pos.x + rotated.x,
-                pos.y + rotated.y,
-                pos.z + rotated.z
-            ))
-        }
-        return result
-    }
-
-    fun getLocalPoint(worldPoint: Vec3): Vec3 {
-        val translated = worldPoint.sub(pos)
-        val invRot = orientation.conjugate()
-        return invRot.rotateVector(translated)
+    fun applyAngularImpulse(ax: Float, ay: Float, az: Float) {
+        angVelX += ax
+        angVelY += ay
+        angVelZ += az
+        isSleeping = false
+        sleepTimer = 0f
     }
 
     fun update(dt: Float) {
         if (isSleeping) return
 
-        pos = pos.add(vel.mul(dt))
+        posX += velX * dt
+        posY += velY * dt
+        posZ += velZ * dt
 
-        val angSpeed = angVel.length()
+        val angSpeed = sqrt(angVelX * angVelX + angVelY * angVelY + angVelZ * angVelZ)
         if (angSpeed > 0.001f) {
-            val axis = angVel.normalize()
+            val axis = floatArrayOf(angVelX / angSpeed, angVelY / angSpeed, angVelZ / angSpeed)
             val deltaQ = Quaternion.fromAxisAngle(axis, angSpeed * dt)
             orientation = deltaQ.multiply(orientation)
             orientation.normalize()
         }
 
-        vel = vel.mul(linearDamping)
-        angVel = angVel.mul(angularDamping)
+        velX *= linearDamping
+        velY *= linearDamping
+        velZ *= linearDamping
+        angVelX *= angularDamping
+        angVelY *= angularDamping
+        angVelZ *= angularDamping
 
-        val linearSpeed = vel.length()
-        val angularSpeed = angVel.length()
+        val linearSpeed = sqrt(velX * velX + velY * velY + velZ * velZ)
+        val angularSpeed = sqrt(angVelX * angVelX + angVelY * angVelY + angVelZ * angVelZ)
 
-        if (linearSpeed < sleepLinearThreshold && angularSpeed < sleepAngularThreshold && pos.y <= boundingRadius + 0.1f) {
+        if (linearSpeed < sleepLinearThreshold && angularSpeed < sleepAngularThreshold && posY <= boundingRadius + 0.05f) {
             sleepTimer += dt
             if (sleepTimer >= sleepTimeRequired) {
                 isSleeping = true
-                vel = Vec3(0f, 0f, 0f)
-                angVel = Vec3(0f, 0f, 0f)
+                velX = 0f; velY = 0f; velZ = 0f
+                angVelX = 0f; angVelY = 0f; angVelZ = 0f
             }
         } else {
             sleepTimer = 0f
         }
     }
 
-    fun wakeUp() {
-        isSleeping = false
-        sleepTimer = 0f
-    }
-
     fun getUpFace(): Int {
-        val upVector = Vec3(0f, 1f, 0f)
+        val upVector = floatArrayOf(0f, 1f, 0f)
         var bestDot = -2f
         var bestFace = 1
 
         for (faceInfo in mesh.faceInfos) {
-            val normal = Vec3(faceInfo.faceNormal[0], faceInfo.faceNormal[1], faceInfo.faceNormal[2])
-            val rotatedNormal = orientation.rotateVector(normal)
-            val dot = rotatedNormal.dot(upVector)
+            val rotatedNormal = orientation.rotateVector(faceInfo.faceNormal)
+            val dot = rotatedNormal[0] * upVector[0] + rotatedNormal[1] * upVector[1] + rotatedNormal[2] * upVector[2]
             if (dot > bestDot) {
                 bestDot = dot
                 bestFace = faceInfo.faceNumber
@@ -263,23 +168,32 @@ class DiceBody(
                 result[i * 4 + j] = rot[i * 4 + j]
             }
         }
-        result[12] = pos.x
-        result[13] = pos.y
-        result[14] = pos.z
+        result[12] = posX
+        result[13] = posY
+        result[14] = posZ
         result[15] = 1f
+        return result
+    }
+
+    fun getWorldVertices(): List<FloatArray> {
+        val result = mutableListOf<FloatArray>()
+        val vertices = mesh.vertices
+        for (i in vertices.indices step 3) {
+            val local = floatArrayOf(vertices[i], vertices[i + 1], vertices[i + 2])
+            val rotated = orientation.rotateVector(local)
+            result.add(floatArrayOf(
+                posX + rotated[0],
+                posY + rotated[1],
+                posZ + rotated[2]
+            ))
+        }
         return result
     }
 }
 
-class ContactPoint(
-    val point: Vec3,
-    val normal: Vec3,
-    val penetration: Float
-)
-
 class PhysicsWorld {
     private val diceBodies = mutableListOf<DiceBody>()
-    private val gravity = -15f
+    private val gravity = -12f
     private val groundY = 0f
     private val wallLimit = 4f
 
@@ -314,154 +228,99 @@ class PhysicsWorld {
         synchronized(diceBodies) {
             snapshot = diceBodies.toList()
         }
-
-        val subSteps = 2
-        val subDt = dt / subSteps.toFloat()
-
-        for (s in 0 until subSteps) {
-            for (dice in snapshot) {
-                if (dice.isSleeping) continue
-                dice.vel.y += gravity * subDt
-                dice.update(subDt)
-            }
-
-            for (dice in snapshot) {
-                if (dice.isSleeping) continue
-                handleGroundCollision(dice)
-                handleWallCollision(dice)
-            }
-
-            handleDiceDiceCollisions(snapshot)
+        
+        for (dice in snapshot) {
+            if (dice.isSleeping) continue
+            
+            dice.velY += gravity * dt
+            dice.update(dt)
+            handleGroundCollision(dice)
+            handleWallCollision(dice)
         }
-    }
-
-    private fun findGroundContacts(dice: DiceBody): List<ContactPoint> {
-        val contacts = mutableListOf<ContactPoint>()
-        val worldVerts = dice.getWorldVertices()
-
-        for (v in worldVerts) {
-            val penetration = groundY - v.y
-            if (penetration > -0.01f) {
-                contacts.add(ContactPoint(
-                    Vec3(v.x, v.y, v.z),
-                    Vec3(0f, 1f, 0f),
-                    max(penetration, 0f)
-                ))
-            }
-        }
-
-        return contacts.sortedByDescending { it.penetration }
+        
+        handleDiceDiceCollisions(snapshot)
     }
 
     private fun handleGroundCollision(dice: DiceBody) {
-        val contacts = findGroundContacts(dice)
-        if (contacts.isEmpty()) return
+        val worldVerts = dice.getWorldVertices()
+        var maxPenetration = 0f
+        var lowestVertIdx = -1
 
-        val maxPenetration = contacts.first().penetration
-        if (maxPenetration > 0f) {
-            dice.pos.y += maxPenetration * 0.8f
+        for ((idx, v) in worldVerts.withIndex()) {
+            val penetration = groundY - v[1]
+            if (penetration > maxPenetration) {
+                maxPenetration = penetration
+                lowestVertIdx = idx
+            }
         }
 
-        for (contact in contacts.take(3)) {
-            if (contact.penetration <= 0f) continue
+        if (maxPenetration > 0f && lowestVertIdx >= 0) {
+            dice.posY += maxPenetration
 
-            val r = contact.point.sub(dice.pos)
-            val velAtPoint = dice.getPointVelocity(contact.point)
-            val velAlongNormal = velAtPoint.dot(contact.normal)
-
-            if (velAlongNormal > 0.5f) {
-                onCollision?.invoke(min(velAlongNormal, 5f))
-            }
-
-            if (velAlongNormal > 0f) continue
-
-            val e = dice.restitution
-            var j = -(1f + e) * velAlongNormal
-            j /= dice.invMass
-
-            val invI = dice.getInvInertiaTensorWorld()
-            val rCrossN = r.cross(contact.normal)
-            val angTerm = rCrossN.dot(invI.multiply(rCrossN))
-            j /= (1f + angTerm)
-
-            val impulse = contact.normal.mul(j)
-            dice.applyImpulseAtPoint(impulse, contact.point)
-
-            val tangent = velAtPoint.sub(contact.normal.mul(velAlongNormal))
-            val tangentLen = tangent.length()
-            if (tangentLen > 0.0001f) {
-                val t = tangent.mul(1f / tangentLen)
-                val velAlongTangent = velAtPoint.dot(t)
-                var jt = -velAlongTangent
-                jt /= dice.invMass
-
-                val rCrossT = r.cross(t)
-                val angTermT = rCrossT.dot(invI.multiply(rCrossT))
-                jt /= (1f + angTermT)
-
-                if (abs(jt) < abs(j) * dice.friction) {
-                    val frictionImpulse = t.mul(jt)
-                    dice.applyImpulseAtPoint(frictionImpulse, contact.point)
+            if (dice.velY < 0f) {
+                val impactSpeed = abs(dice.velY)
+                
+                if (impactSpeed > 0.3f) {
+                    onCollision?.invoke(min(impactSpeed, 5f))
+                    
+                    val bounceVel = -dice.velY * dice.restitution
+                    dice.velY = if (abs(bounceVel) > 0.2f) bounceVel else 0f
+                    
+                    dice.velX *= (1f - dice.friction * 0.5f)
+                    dice.velZ *= (1f - dice.friction * 0.5f)
+                    
+                    val localVert = floatArrayOf(
+                        dice.mesh.vertices[lowestVertIdx * 3],
+                        dice.mesh.vertices[lowestVertIdx * 3 + 1],
+                        dice.mesh.vertices[lowestVertIdx * 3 + 2]
+                    )
+                    val contactArm = floatArrayOf(
+                        localVert[0] * 0.5f,
+                        0f,
+                        localVert[2] * 0.5f
+                    )
+                    dice.angVelX += contactArm[2] * impactSpeed * 0.3f
+                    dice.angVelZ -= contactArm[0] * impactSpeed * 0.3f
                 } else {
-                    val frictionImpulse = t.mul(-j * dice.friction)
-                    dice.applyImpulseAtPoint(frictionImpulse, contact.point)
+                    dice.velY = 0f
+                    dice.velX *= 0.85f
+                    dice.velZ *= 0.85f
+                    dice.angVelX *= 0.85f
+                    dice.angVelY *= 0.85f
+                    dice.angVelZ *= 0.85f
                 }
             }
         }
     }
 
     private fun handleWallCollision(dice: DiceBody) {
-        val wallNormal = Vec3(1f, 0f, 0f)
-        val contactPoint = Vec3(0f, dice.pos.y, dice.pos.z)
-
-        if (dice.pos.x - dice.boundingRadius < -wallLimit) {
-            contactPoint.x = -wallLimit
-            dice.pos.x = -wallLimit + dice.boundingRadius
-            resolveWallCollision(dice, contactPoint, Vec3(1f, 0f, 0f))
+        if (dice.posX - dice.boundingRadius < -wallLimit) {
+            dice.posX = -wallLimit + dice.boundingRadius
+            if (dice.velX < 0f) {
+                dice.velX = -dice.velX * dice.restitution
+                onCollision?.invoke(abs(dice.velX))
+            }
         }
-
-        if (dice.pos.x + dice.boundingRadius > wallLimit) {
-            contactPoint.x = wallLimit
-            dice.pos.x = wallLimit - dice.boundingRadius
-            resolveWallCollision(dice, contactPoint, Vec3(-1f, 0f, 0f))
+        if (dice.posX + dice.boundingRadius > wallLimit) {
+            dice.posX = wallLimit - dice.boundingRadius
+            if (dice.velX > 0f) {
+                dice.velX = -dice.velX * dice.restitution
+                onCollision?.invoke(abs(dice.velX))
+            }
         }
-
-        wallNormal.x = 0f; wallNormal.z = 1f
-        contactPoint.x = dice.pos.x
-
-        if (dice.pos.z - dice.boundingRadius < -wallLimit) {
-            contactPoint.z = -wallLimit
-            dice.pos.z = -wallLimit + dice.boundingRadius
-            resolveWallCollision(dice, contactPoint, Vec3(0f, 0f, 1f))
+        if (dice.posZ - dice.boundingRadius < -wallLimit) {
+            dice.posZ = -wallLimit + dice.boundingRadius
+            if (dice.velZ < 0f) {
+                dice.velZ = -dice.velZ * dice.restitution
+                onCollision?.invoke(abs(dice.velZ))
+            }
         }
-
-        if (dice.pos.z + dice.boundingRadius > wallLimit) {
-            contactPoint.z = wallLimit
-            dice.pos.z = wallLimit - dice.boundingRadius
-            resolveWallCollision(dice, contactPoint, Vec3(0f, 0f, -1f))
-        }
-    }
-
-    private fun resolveWallCollision(dice: DiceBody, contactPoint: Vec3, normal: Vec3) {
-        val velAtPoint = dice.getPointVelocity(contactPoint)
-        val velAlongNormal = velAtPoint.dot(normal)
-        if (velAlongNormal > 0f) return
-
-        val e = dice.restitution
-        val r = contactPoint.sub(dice.pos)
-        var j = -(1f + e) * velAlongNormal
-        j /= dice.invMass
-
-        val invI = dice.getInvInertiaTensorWorld()
-        val rCrossN = r.cross(normal)
-        val angTerm = rCrossN.dot(invI.multiply(rCrossN))
-        j /= (1f + angTerm)
-
-        val impulse = normal.mul(j)
-        dice.applyImpulseAtPoint(impulse, contactPoint)
-
-        if (abs(velAlongNormal) > 0.3f) {
-            onCollision?.invoke(min(abs(velAlongNormal), 5f))
+        if (dice.posZ + dice.boundingRadius > wallLimit) {
+            dice.posZ = wallLimit - dice.boundingRadius
+            if (dice.velZ > 0f) {
+                dice.velZ = -dice.velZ * dice.restitution
+                onCollision?.invoke(abs(dice.velZ))
+            }
         }
     }
 
@@ -472,91 +331,55 @@ class PhysicsWorld {
                 val b = bodies[j]
                 if (a.isSleeping && b.isSleeping) continue
 
-                val dx = b.pos.x - a.pos.x
-                val dy = b.pos.y - a.pos.y
-                val dz = b.pos.z - a.pos.z
+                val dx = b.posX - a.posX
+                val dy = b.posY - a.posY
+                val dz = b.posZ - a.posZ
                 val distSq = dx * dx + dy * dy + dz * dz
                 val minDist = a.boundingRadius + b.boundingRadius
                 val minDistSq = minDist * minDist
 
-                if (distSq < minDistSq && distSq > 0.0001f) {
+                if (distSq < minDistSq && distSq > 0.001f) {
                     val dist = sqrt(distSq)
                     val nx = dx / dist
                     val ny = dy / dist
                     val nz = dz / dist
-                    val normal = Vec3(nx, ny, nz)
 
                     val overlap = minDist - dist
-                    a.pos = a.pos.sub(normal.mul(overlap * 0.5f))
-                    b.pos = b.pos.add(normal.mul(overlap * 0.5f))
+                    a.posX -= nx * overlap * 0.5f
+                    a.posY -= ny * overlap * 0.5f
+                    a.posZ -= nz * overlap * 0.5f
+                    b.posX += nx * overlap * 0.5f
+                    b.posY += ny * overlap * 0.5f
+                    b.posZ += nz * overlap * 0.5f
 
-                    val contactPointA = a.pos.add(normal.mul(a.boundingRadius))
-                    val contactPointB = b.pos.sub(normal.mul(b.boundingRadius))
+                    val relVelX = a.velX - b.velX
+                    val relVelY = a.velY - b.velY
+                    val relVelZ = a.velZ - b.velZ
+                    val relVelAlongNormal = relVelX * nx + relVelY * ny + relVelZ * nz
 
-                    resolveDiceDiceCollision(a, b, contactPointA, contactPointB, normal)
+                    if (relVelAlongNormal > 0f) {
+                        val e = min(a.restitution, b.restitution)
+                        val j = -(1f + e) * relVelAlongNormal / 2f
 
-                    a.wakeUp()
-                    b.wakeUp()
+                        a.velX += j * nx
+                        a.velY += j * ny
+                        a.velZ += j * nz
+                        b.velX -= j * nx
+                        b.velY -= j * ny
+                        b.velZ -= j * nz
+
+                        a.angVelX += (Math.random().toFloat() - 0.5f) * abs(j) * 0.2f
+                        a.angVelZ += (Math.random().toFloat() - 0.5f) * abs(j) * 0.2f
+                        b.angVelX += (Math.random().toFloat() - 0.5f) * abs(j) * 0.2f
+                        b.angVelZ += (Math.random().toFloat() - 0.5f) * abs(j) * 0.2f
+
+                        onCollision?.invoke(min(abs(relVelAlongNormal), 5f))
+                    }
+
+                    a.isSleeping = false; a.sleepTimer = 0f
+                    b.isSleeping = false; b.sleepTimer = 0f
                 }
             }
-        }
-    }
-
-    private fun resolveDiceDiceCollision(a: DiceBody, b: DiceBody, pointA: Vec3, pointB: Vec3, normal: Vec3) {
-        val ra = pointA.sub(a.pos)
-        val rb = pointB.sub(b.pos)
-
-        val velA = a.getPointVelocity(pointA)
-        val velB = b.getPointVelocity(pointB)
-        val relVel = velA.sub(velB)
-        val relVelNormal = relVel.dot(normal)
-
-        if (relVelNormal > 0f) return
-
-        val e = min(a.restitution, b.restitution)
-        val invIA = a.getInvInertiaTensorWorld()
-        val invIB = b.getInvInertiaTensorWorld()
-
-        val raCrossN = ra.cross(normal)
-        val rbCrossN = rb.cross(normal)
-        val angTermA = raCrossN.dot(invIA.multiply(raCrossN))
-        val angTermB = rbCrossN.dot(invIB.multiply(rbCrossN))
-
-        var j = -(1f + e) * relVelNormal
-        j /= (a.invMass + b.invMass + angTermA + angTermB)
-
-        val impulse = normal.mul(j)
-        a.applyImpulseAtPoint(impulse, pointA)
-        b.applyImpulseAtPoint(impulse.mul(-1f), pointB)
-
-        val tangent = relVel.sub(normal.mul(relVelNormal))
-        val tangentLen = tangent.length()
-        if (tangentLen > 0.0001f) {
-            val t = tangent.mul(1f / tangentLen)
-            val velAlongTangent = relVel.dot(t)
-
-            val raCrossT = ra.cross(t)
-            val rbCrossT = rb.cross(t)
-            val angTermTA = raCrossT.dot(invIA.multiply(raCrossT))
-            val angTermTB = rbCrossT.dot(invIB.multiply(rbCrossT))
-
-            var jt = -velAlongTangent
-            jt /= (a.invMass + b.invMass + angTermTA + angTermTB)
-
-            val friction = min(a.friction, b.friction)
-            if (abs(jt) < abs(j) * friction) {
-                val frictionImpulse = t.mul(jt)
-                a.applyImpulseAtPoint(frictionImpulse, pointA)
-                b.applyImpulseAtPoint(frictionImpulse.mul(-1f), pointB)
-            } else {
-                val frictionImpulse = t.mul(-j * friction)
-                a.applyImpulseAtPoint(frictionImpulse, pointA)
-                b.applyImpulseAtPoint(frictionImpulse.mul(-1f), pointB)
-            }
-        }
-
-        if (abs(relVelNormal) > 0.3f) {
-            onCollision?.invoke(min(abs(relVelNormal), 5f))
         }
     }
 
@@ -569,32 +392,26 @@ class PhysicsWorld {
     fun throwDice() {
         synchronized(diceBodies) {
             for (dice in diceBodies) {
-                val spread = diceBodies.size * 0.4f
-                dice.pos = Vec3(
-                    (Math.random().toFloat() - 0.5f) * spread,
-                    3.5f + Math.random().toFloat() * 2f,
-                    (Math.random().toFloat() - 0.5f) * spread
-                )
+                val spread = diceBodies.size * 0.3f
+                dice.posX = (Math.random().toFloat() - 0.5f) * spread
+                dice.posY = 3f + Math.random().toFloat() * 2f
+                dice.posZ = (Math.random().toFloat() - 0.5f) * spread
 
-                dice.vel = Vec3(
-                    (Math.random().toFloat() - 0.5f) * 6f,
-                    -2f + Math.random().toFloat() * 3f,
-                    (Math.random().toFloat() - 0.5f) * 6f
-                )
+                dice.velX = (Math.random().toFloat() - 0.5f) * 5f
+                dice.velY = -1f + Math.random().toFloat() * 2f
+                dice.velZ = (Math.random().toFloat() - 0.5f) * 5f
 
-                dice.angVel = Vec3(
-                    (Math.random().toFloat() - 0.5f) * 15f,
-                    (Math.random().toFloat() - 0.5f) * 15f,
-                    (Math.random().toFloat() - 0.5f) * 15f
-                )
+                dice.angVelX = (Math.random().toFloat() - 0.5f) * 12f
+                dice.angVelY = (Math.random().toFloat() - 0.5f) * 12f
+                dice.angVelZ = (Math.random().toFloat() - 0.5f) * 12f
 
                 dice.orientation = Quaternion.fromAxisAngle(
-                    Vec3(
+                    floatArrayOf(
                         Math.random().toFloat(),
                         Math.random().toFloat(),
                         Math.random().toFloat()
-                    ).normalize(),
-                    Math.random().toFloat() * PI * 2f
+                    ),
+                    Math.random().toFloat() * 6.28f
                 )
                 dice.orientation.normalize()
 
@@ -608,12 +425,12 @@ class PhysicsWorld {
         synchronized(diceBodies) {
             for (dice in diceBodies) {
                 if (!dice.isSleeping) {
-                    dice.vel.y += 5f + Math.random().toFloat() * 3f
-                    dice.vel.x += (Math.random().toFloat() - 0.5f) * 3f
-                    dice.vel.z += (Math.random().toFloat() - 0.5f) * 3f
-                    dice.angVel.x += (Math.random().toFloat() - 0.5f) * 8f
-                    dice.angVel.y += (Math.random().toFloat() - 0.5f) * 8f
-                    dice.angVel.z += (Math.random().toFloat() - 0.5f) * 8f
+                    dice.velY += 4f + Math.random().toFloat() * 2f
+                    dice.velX += (Math.random().toFloat() - 0.5f) * 2f
+                    dice.velZ += (Math.random().toFloat() - 0.5f) * 2f
+                    dice.angVelX += (Math.random().toFloat() - 0.5f) * 6f
+                    dice.angVelY += (Math.random().toFloat() - 0.5f) * 6f
+                    dice.angVelZ += (Math.random().toFloat() - 0.5f) * 6f
                     dice.isSleeping = false
                     dice.sleepTimer = 0f
                 }
