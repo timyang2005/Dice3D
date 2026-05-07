@@ -25,9 +25,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlin.math.cos
-import kotlin.math.random
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlin.random.Random
 
 class DiceViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -113,28 +113,28 @@ class DiceViewModel(application: Application) : AndroidViewModel(application) {
         diceBodyMap.values.forEach { body ->
             val spread = currentDiceCount * 0.4f
             body.position = floatArrayOf(
-                (random() - 0.5).toFloat() * spread,
-                3.5f + random().toFloat() * 2f,
-                (random() - 0.5).toFloat() * spread
+                (Random.nextFloat() - 0.5f) * spread,
+                3.5f + Random.nextFloat() * 2f,
+                (Random.nextFloat() - 0.5f) * spread
             )
 
             body.linearVelocity = floatArrayOf(
-                (random() - 0.5).toFloat() * 6f,
-                -2f + random().toFloat() * 3f,
-                (random() - 0.5).toFloat() * 6f
+                (Random.nextFloat() - 0.5f) * 6f,
+                -2f + Random.nextFloat() * 3f,
+                (Random.nextFloat() - 0.5f) * 6f
             )
 
             body.angularVelocity = floatArrayOf(
-                (random() - 0.5).toFloat() * 15f,
-                (random() - 0.5).toFloat() * 15f,
-                (random() - 0.5).toFloat() * 15f
+                (Random.nextFloat() - 0.5f) * 15f,
+                (Random.nextFloat() - 0.5f) * 15f,
+                (Random.nextFloat() - 0.5f) * 15f
             )
 
-            val angle = random().toFloat() * kotlin.math.PI.toFloat() * 2f
+            val angle = Random.nextFloat() * kotlin.math.PI.toFloat() * 2f
             val axis = floatArrayOf(
-                random().toFloat(),
-                random().toFloat(),
-                random().toFloat()
+                Random.nextFloat(),
+                Random.nextFloat(),
+                Random.nextFloat()
             )
             val len = sqrt(axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2])
             val sinHalf = sin(angle * 0.5f)
@@ -153,15 +153,15 @@ class DiceViewModel(application: Application) : AndroidViewModel(application) {
         diceBodyMap.values.forEach { body ->
             if (!body.isSleeping) {
                 val vel = body.linearVelocity
-                vel[1] += 5f + random().toFloat() * 3f
-                vel[0] += (random().toFloat() - 0.5f) * 3f
-                vel[2] += (random().toFloat() - 0.5f) * 3f
+                vel[1] += 5f + Random.nextFloat() * 3f
+                vel[0] += (Random.nextFloat() - 0.5f) * 3f
+                vel[2] += (Random.nextFloat() - 0.5f) * 3f
                 body.linearVelocity = vel
 
                 val angVel = body.angularVelocity
-                angVel[0] += (random().toFloat() - 0.5f) * 8f
-                angVel[1] += (random().toFloat() - 0.5f) * 8f
-                angVel[2] += (random().toFloat() - 0.5f) * 8f
+                angVel[0] += (Random.nextFloat() - 0.5f) * 8f
+                angVel[1] += (Random.nextFloat() - 0.5f) * 8f
+                angVel[2] += (Random.nextFloat() - 0.5f) * 8f
                 body.angularVelocity = angVel
 
                 body.wakeUp()
