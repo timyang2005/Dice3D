@@ -63,7 +63,7 @@ class LibbulletjmeAdapter : PhysicsAdapter {
     }
 
     override fun createDiceBody(id: Int, mesh: DiceMesh, boundingRadius: Float): DicePhysicsBody {
-        val collisionShape = HullCollisionShape(mesh.vertices)
+        val collisionShape = HullCollisionShape(*mesh.vertices)
         val mass = 0.1f
         val rigidBody = PhysicsRigidBody(collisionShape, mass)
         rigidBody.friction = 0.8f
