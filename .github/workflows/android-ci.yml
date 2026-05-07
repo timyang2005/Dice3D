@@ -53,18 +53,23 @@ jobs:
         gradle-version: '8.11.1'
 
     - name: Build Debug APK
+      run: set -o pipefail && gradle assembleDebug --stacktrace 2>&1 | tee build.log
+
+    - name: Report build errors
+      if: failure()
       run: |
-        gradle assembleDebug --stacktrace 2>&1 | tee build.log
-        exit_code=${PIPESTATUS[0]}
-        if [ $exit_code -ne 0 ]; then
-          echo "=== BUILD FAILED ==="
-          echo "=== KOTLIN ERRORS ==="
-          grep -E "^e: " build.log || true
-          echo "=== GRADLE ERRORS ==="
-          grep -E "(FAILURE|What went wrong)" build.log || true
-          echo "=== LAST 80 LINES ==="
-          tail -80 build.log
-          exit $exit_code
+        echo "::group::Kotlin Compilation Errors"
+        grep -E "^e: " build.log || echo "No 'e:' errors found"
+        echo "::endgroup::"
+        echo "::group::Gradle Errors"
+        grep -E "(FAILURE|What went wrong)" build.log || echo "No gradle errors found"
+        echo "::endgroup::"
+        echo "::group::Last 100 lines"
+        tail -100 build.log
+        echo "::endgroup::"
+        ERRORS=$(grep -E "^e: " build.log | head -10)
+        if [ -n "$ERRORS" ]; then
+          echo "::error::$ERRORS"
         fi
 
     - name: Build Release APK
